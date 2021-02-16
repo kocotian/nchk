@@ -14,6 +14,7 @@
 #include <sys/socket.h>
 
 #include "arg.h"
+#include "config.h"
 #include "util.c"
 
 #define COMMAND(cmd, src) !strcmp((src), (cmd))
@@ -33,26 +34,27 @@ static void cmdrm(int16_t *checkers, char *cmd);
 static void cmdsu(int16_t *checkers, char *cmd);
 static void drawchecker(int16_t checker);
 static void dumpcheckers(int16_t *checkers);
+static void dumphistory(char *history[histsize]);
 static int16_t *getcheckerbypos(int16_t *checkers, int16_t row, int16_t col);
 static void go(int16_t col, int16_t row);
 static int16_t makechecker(int16_t superpowered, int16_t color, int16_t col, int16_t row);
 static void prepare(int16_t *checkers);
 static void usage(void);
 
-static size_t message(struct sockaddr_in addr, char *msg, size_t msgsiz, char **buf, size_t bufsiz);
-static void sendupdate(int16_t *checkers, struct sockaddr_in addr);
+static ssize_t message(struct sockaddr_in addr, char *msg, size_t msgsiz, char **buf, size_t bufsiz);
+static void sendupdate(int16_t *checkers, struct sockaddr_in addr, char *msg);
 static void requestjoin(struct sockaddr_in addr, struct sockaddr_in haddr);
 
 static const char t[] =
-"\033[1;97m   a  b  c  d  e  f  g  h\n"
-"\033[1;97m1 \033[0;37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\n"
-"\033[1;97m2 \033[0;33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\n"
-"\033[1;97m3 \033[0;37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\n"
-"\033[1;97m4 \033[0;33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\n"
-"\033[1;97m5 \033[0;37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\n"
-"\033[1;97m6 \033[0;33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\n"
-"\033[1;97m7 \033[0;37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\n"
-"\033[1;97m8 \033[0;33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\n";
+"\033[1;97m   a  b  c  d  e  f  g  h  \033[0;37m│ \033[1;37m== \033[1;33mHistory \033[1;37m==\n"
+"\033[1;97m1 \033[0;37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ] \033[0;37m│ \n"
+"\033[1;97m2 \033[0;33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ] \033[0;37m│ \n"
+"\033[1;97m3 \033[0;37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ] \033[0;37m│ \n"
+"\033[1;97m4 \033[0;33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ] \033[0;37m│ \n"
+"\033[1;97m5 \033[0;37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ] \033[0;37m│ \n"
+"\033[1;97m6 \033[0;33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ] \033[0;37m│ \n"
+"\033[1;97m7 \033[0;37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ] \033[0;37m│ \n"
+"\033[1;97m8 \033[0;33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ]\033[33m[ ]\033[37m[ ] \033[0;37m│ \n";
 
 char *argv0;
 
@@ -129,7 +131,7 @@ cmdreturn(struct sockaddr_in addr, int *move, int color)
 static void
 cmdrm(int16_t *checkers, char *cmd)
 {
-	int16_t *checker, *dest;
+	int16_t *checker;
 
 	if (!strcmp(cmd, "help")) {
 		usage:
@@ -154,7 +156,7 @@ cmdrm(int16_t *checkers, char *cmd)
 static void
 cmdsu(int16_t *checkers, char *cmd)
 {
-	int16_t *checker, *dest;
+	int16_t *checker;
 
 	if (!strcmp(cmd, "help")) {
 		usage:
@@ -191,7 +193,7 @@ drawchecker(int16_t checker)
 {
 	if (checker < 0) return;
 	go(COL(checker), ROW(checker));
-	printf("\033[1;3%cm%c", COLOR(checker) + '1', SUPERPOWERED(checker) ? '@' : 'O');
+	printf("\033[1;3%cm%s", COLOR(checker) + '1', SUPERPOWERED(checker) ? superpawn : normalpawn);
 }
 
 static void
@@ -201,6 +203,19 @@ dumpcheckers(int16_t *checkers)
 	for (i = 0; i < 2; ++i)
 		for (j = 0; j < 12; ++j)
 			drawchecker(checkers[j + (i * 12)]);
+}
+
+static void
+dumphistory(char *history[histsize])
+{
+	int i, j;
+	printf("\033[0;97m");
+	for (i = 0; i < histsize; ++i) {
+		GOTOXY(30, i + 2);
+		puts("                                ");
+		GOTOXY(30, i + 2);
+		puts(history[i]);
+	}
 }
 
 static int16_t *
@@ -242,7 +257,7 @@ usage(void)
 	die("usage: %s [-h HOSTIP] [-p HOSTPORT] [CLIENT_IP [CLIENT_PORT]]", argv0);
 }
 
-static size_t
+static ssize_t
 message(struct sockaddr_in addr, char *msg, size_t msgsiz, char **buf, size_t bufsiz)
 {
 	int sockfd;
@@ -260,12 +275,15 @@ message(struct sockaddr_in addr, char *msg, size_t msgsiz, char **buf, size_t bu
 }
 
 static void
-sendupdate(int16_t *checkers, struct sockaddr_in addr)
+sendupdate(int16_t *checkers, struct sockaddr_in addr, char *msg)
 {
-	char msg[49];
-	msg[0] = 'U';
-	memcpy(msg + 1, checkers, 48);
-	if (message(addr, msg, 49, NULL, 0) < 0)
+	size_t sl;
+	char mem[49 + sizeof(size_t) + (sl = strlen(msg))];
+	mem[0] = 'U';
+	memcpy(mem + 1, checkers, 48);
+	memcpy(mem + 49, (char *)&sl, sizeof(size_t));
+	memcpy(mem + 49 + sizeof(size_t), msg, sl);
+	if (message(addr, mem, 49 + sizeof(size_t) + (sl = strlen(msg)), NULL, 0) < 0)
 		die("message:");
 }
 
@@ -286,6 +304,8 @@ main(int argc, char *argv[])
 	sigset_t sig; int signo;
 	socklen_t caddrsiz;
 	int *move; char *ad;
+	char *history[histsize];
+	int i;
 
 	struct sockaddr_in haddr, caddr;
 	struct sockaddr_in *chost = mmap(NULL, sizeof(*chost), PROT_READ | PROT_WRITE,
@@ -296,6 +316,12 @@ main(int argc, char *argv[])
 
 	move = mmap(NULL, sizeof(*move), PROT_READ | PROT_WRITE,
 			MAP_ANONYMOUS | MAP_SHARED, 0, 0);
+
+	for (i = 0; i < histsize; ++i) {
+		history[i] = mmap(NULL, sizeof(msgsize), PROT_READ | PROT_WRITE,
+				MAP_ANONYMOUS | MAP_SHARED, 0, 0);
+		strcpy(history[i], "");
+	}
 
 	/* 2 arrays of 12 checkers
 	   in format:
@@ -334,11 +360,8 @@ main(int argc, char *argv[])
 	prepare(checkers);
 	parentpid = getpid();
 
-	fork:
-	{
-		int sockfd, clientfd, opt;
-		size_t resplen;
-
+	/* fork */ {
+		int sockfd, clientfd, opt; size_t resplen;
 		char buffer[BUFSIZ];
 
 		if ((sockfd = socket(haddr.sin_family, SOCK_STREAM, IPPROTO_TCP)) < 0)
@@ -390,9 +413,19 @@ main(int argc, char *argv[])
 					*move = color;
 					kill(parentpid, SIGUSR1);
 					break;
-				case 'U': /* Update */
-					memcpy(checkers, buffer + 1, resplen - 1);
+				case 'U': /* Update */ {
+					int umsglen;
+					memcpy(checkers, buffer + 1, 48);
+					memcpy(&umsglen, buffer + 49, sizeof(size_t));
+					for (i = 7; i > 0; --i)
+						strncpy(history[i], history[i - 1], msgsize);
+					strncat(history[0], buffer + 49 + sizeof(size_t),
+							umsglen - snprintf(history[0], msgsize,
+								"\033[0;3%cm$ \033[0;97m", !color + '1'));
 					kill(parentpid, SIGUSR1);
+					break;
+				}
+				default:
 					break;
 				}
 
@@ -425,6 +458,7 @@ main(int argc, char *argv[])
 		GOTOXY(1, 1);
 		printf("%s", t);
 		dumpcheckers(checkers);
+		dumphistory(history);
 		GOUNDERT();
 		printf("\033[0;97mstatus: \033[1;9%cm%s\033[0;97m\n", *move + '1', *move == color ? "your move" : "waiting");
 
@@ -441,21 +475,25 @@ main(int argc, char *argv[])
 
 			if (COMMAND_ARG(line, "mv")) {
 				cmdmv(checkers, line + 3);
-				sendupdate(checkers, *chost);
+				sendupdate(checkers, *chost, line);
 			} else if (COMMAND(line, "return"))
 				cmdreturn(*chost, move, color);
 			else if (COMMAND_ARG(line, "su")) {
 				cmdsu(checkers, line + 3);
-				sendupdate(checkers, *chost);
+				sendupdate(checkers, *chost, line);
 			} else if (COMMAND_ARG(line, "rm")) {
 				cmdrm(checkers, line + 3);
-				sendupdate(checkers, *chost);
+				sendupdate(checkers, *chost, line);
 			} else if (COMMAND(line, "quit") || COMMAND(line, "exit")
 					|| COMMAND(line, "bye"))
 				break;
 			else if (COMMAND(line, ""));
 			else
 				printf("%s: unknown command or bad syntax\n", line);
+			for (i = 7; i > 0; --i)
+				strncpy(history[i], history[i - 1], msgsize);
+			strncat(history[0], line,
+					msgsize - snprintf(history[0], msgsize, "\033[0;3%cm$ \033[0;97m", color + '1'));
 		}
 	}
 
@@ -464,6 +502,8 @@ main(int argc, char *argv[])
 	munmap(chost, sizeof(*chost));
 	munmap(move, sizeof(*move));
 	munmap(ad, sizeof(*ad));
+	for (i = 0; i < histsize; ++i)
+		munmap(history[i], sizeof(msgsize));
 	printf("\033[2J\033[H");
 	puts("goodbye!");
 }
