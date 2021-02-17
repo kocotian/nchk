@@ -476,9 +476,10 @@ main(int argc, char *argv[])
 			if (COMMAND_ARG(line, "mv")) {
 				cmdmv(checkers, line + 3);
 				sendupdate(checkers, *chost, line);
-			} else if (COMMAND(line, "return"))
+			} else if (COMMAND(line, "return")) {
 				cmdreturn(*chost, move, color);
-			else if (COMMAND_ARG(line, "su")) {
+				continue;
+			} else if (COMMAND_ARG(line, "su")) {
 				cmdsu(checkers, line + 3);
 				sendupdate(checkers, *chost, line);
 			} else if (COMMAND_ARG(line, "rm")) {
