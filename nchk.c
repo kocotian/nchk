@@ -29,12 +29,15 @@
 #define ROW(checker) (((checker) & 7) + 1)
 
 static void cmdmv(int16_t *checkers, char *cmd);
+static void cmdrecolor(int16_t *checkers, char *cmd);
 static void cmdreturn(struct sockaddr_in addr, int *move, int color);
 static void cmdrm(int16_t *checkers, char *cmd);
 static void cmdsu(int16_t *checkers, char *cmd);
+static void cmdsummon(int16_t *checkers, char *cmd);
 static void drawchecker(int16_t checker);
 static void dumpcheckers(int16_t *checkers);
 static void dumphistory(char *history[histsize]);
+static int16_t *getblankfield(int16_t *checkers);
 static int16_t *getcheckerbypos(int16_t *checkers, int16_t row, int16_t col);
 static void go(int16_t col, int16_t row);
 static int16_t makechecker(int16_t superpowered, int16_t color, int16_t col, int16_t row);
@@ -120,6 +123,36 @@ cmdmv(int16_t *checkers, char *cmd)
 }
 
 static void
+cmdrecolor(int16_t *checkers, char *cmd)
+{
+	int16_t *checker;
+
+	if (!strcmp(cmd, "help")) {
+		usage:
+		puts("usage: recolor <position>");
+		puts("\nexample: recolor e7");
+		return;
+	}
+
+	if (
+	!(   (cmd[0] >= 'a' && cmd[0] <= 'h')
+	&&   (cmd[1] >= '1' && cmd[1] <= '8')
+	)) goto usage;
+
+	if ((checker = getcheckerbypos(checkers, cmd[0] - 'a' + 1, cmd[1] - '1' + 1)) == NULL) {
+		puts("specified field is blank");
+		return;
+	}
+
+	*checker = makechecker(
+		SUPERPOWERED(*checker),
+		!(COLOR(*checker)),
+		cmd[1] - '1',
+		cmd[0] - 'a'
+	);
+}
+
+static void
 cmdreturn(struct sockaddr_in addr, int *move, int color)
 {
 	*move = !color;
@@ -189,6 +222,41 @@ cmdsu(int16_t *checkers, char *cmd)
 }
 
 static void
+cmdsummon(int16_t *checkers, char *cmd)
+{
+	int16_t *checker;
+
+	if (!strcmp(cmd, "help")) {
+		usage:
+		puts("usage: summon <position>");
+		puts("\nexample: summon h2");
+		return;
+	}
+
+	if (
+	!(   (cmd[0] >= 'a' && cmd[0] <= 'h')
+	&&   (cmd[1] >= '1' && cmd[1] <= '8')
+	)) goto usage;
+
+	if (getcheckerbypos(checkers, cmd[0] - 'a' + 1, cmd[1] - '1' + 1) != NULL) {
+		puts("specified field is occupied");
+		return;
+	}
+
+	if ((checker = getblankfield(checkers)) == NULL) {
+		puts("there are no free fields");
+		return;
+	}
+
+	*checker = makechecker(
+		0,
+		color,
+		cmd[1] - '1',
+		cmd[0] - 'a'
+	);
+}
+
+static void
 drawchecker(int16_t checker)
 {
 	if (checker < 0) return;
@@ -219,12 +287,23 @@ dumphistory(char *history[histsize])
 }
 
 static int16_t *
+getblankfield(int16_t *checkers)
+{
+	int i, j;
+	for (j = 0; j < 24; ++j)
+		if (checkers[i] == -1)
+			return &(checkers[i]);
+	return NULL;
+}
+
+static int16_t *
 getcheckerbypos(int16_t *checkers, int16_t row, int16_t col)
 {
 	int i, j;
 	for (i = 0; i < 2; ++i)
 		for (j = 0; j < 12; ++j)
-			if (ROW(checkers[j + (i * 12)]) == row && COL(checkers[j + (i * 12)]) == col)
+			if (ROW(checkers[j + (i * 12)]) == row && COL(checkers[j + (i * 12)]) == col
+			&& checkers[j + (i * 12)] != -1)
 				return &(checkers[j + (i * 12)]);
 	return NULL;
 }
@@ -476,11 +555,19 @@ main(int argc, char *argv[])
 			if (COMMAND_ARG(line, "mv")) {
 				cmdmv(checkers, line + 3);
 				sendupdate(checkers, *chost, line);
+			} else if (COMMAND_ARG(line, "recolor")) {
+				cmdrecolor(checkers, line + 8);
+				sendupdate(checkers, *chost, line);
 			} else if (COMMAND(line, "return")) {
 				cmdreturn(*chost, move, color);
 				continue;
-			} else if (COMMAND_ARG(line, "su")) {
+			} else if (COMMAND(line, "say"))
+				sendupdate(checkers, *chost, line);
+			else if (COMMAND_ARG(line, "su")) {
 				cmdsu(checkers, line + 3);
+				sendupdate(checkers, *chost, line);
+			} else if (COMMAND_ARG(line, "summon")) {
+				cmdsummon(checkers, line + 7);
 				sendupdate(checkers, *chost, line);
 			} else if (COMMAND_ARG(line, "rm")) {
 				cmdrm(checkers, line + 3);
